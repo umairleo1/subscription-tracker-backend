@@ -3,7 +3,7 @@
 ## 🚀 Production-Ready User Management API
 
 ### Overview
-The Subscription Tracker API provides enterprise-grade user management with multi-account Google OAuth support, automated token refresh, comprehensive audit trails, and advanced security features.
+The Subscription Tracker API provides enterprise-grade user management with multi-account Google OAuth support, automated token refresh via Celery background tasks, and professional security features. **All auth endpoints have been removed** - complete functionality is now consolidated under `/api/v1/users/` endpoints.
 
 ## 🔐 Security Architecture
 
@@ -31,7 +31,14 @@ Multi-Layer Protection:
 ### 1. User Registration & Management
 
 #### POST /api/v1/users/
-**Purpose:** Create or update primary user on Google OAuth sign-in
+**Purpose:** Create or update primary user on Google OAuth sign-in (replaces all auth endpoints)
+
+**Features:**
+- ✅ **Complete Google OAuth Integration**: Handles both new user creation and account linking
+- ✅ **Professional GoogleAuthService**: Full business logic from removed auth endpoints
+- ✅ **Account Limits Enforcement**: Maximum 5 Google accounts per user
+- ✅ **Automatic Token Encryption**: AES-256 encryption with Fernet
+- ✅ **Celery Background Tasks**: Automatic token refresh integration
 
 **Request:**
 ```json
@@ -39,10 +46,8 @@ Multi-Layer Protection:
   "profile": {
     "id": "1234567890",
     "email": "user@example.com",
-    "given_name": "John",
-    "family_name": "Doe", 
     "name": "John Doe",
-    "picture": "https://lh3.googleusercontent.com/a/photo.jpg"
+    "image": "https://lh3.googleusercontent.com/a/photo.jpg"
   },
   "tokens": {
     "access_token": "ya29.a0ARrdaM...",
@@ -51,20 +56,20 @@ Multi-Layer Protection:
     "expires_at": 1700000000,
     "token_type": "Bearer",
     "scope": "openid email profile https://www.googleapis.com/auth/gmail.readonly"
-  }
+  },
+  "is_primary": true
 }
 ```
 
-**Response:**
+**Response (201 Created):**
 ```json
 {
-  "success": true,
+  "status": "success",
+  "message": "New user created and Google account linked successfully",
   "data": {
     "user": {
-      "id": 1,
+      "id": "user-uuid-here",
       "email": "user@example.com",
-      "first_name": "John",
-      "last_name": "Doe",
       "name": "John Doe",
       "picture": "https://lh3.googleusercontent.com/a/photo.jpg",
       "is_active": true,
@@ -72,83 +77,115 @@ Multi-Layer Protection:
       "subscription_status": "active",
       "subscription_expires_at": null,
       "primary_account": {
-        "id": 1,
-        "user_id": 1,
+        "id": "account-uuid",
+        "user_id": "user-uuid-here",
         "google_id": "1234567890",
         "email": "user@example.com",
+        "name": "John Doe",
         "is_primary": true,
         "is_active": true,
         "token_status": "active",
         "needs_reauth": false,
         "is_token_expired": false,
         "requires_refresh": false,
-        "connected_at": "2024-01-15T10:30:00Z",
+        "connected_at": "2025-08-12T10:30:00Z",
         "last_token_refresh": null,
         "token_refresh_count": 0,
-        "last_used_at": "2024-01-15T10:30:00Z"
+        "last_used_at": "2025-08-12T10:30:00Z"
       },
       "secondary_accounts": [],
       "total_accounts": 1,
       "active_accounts": 1,
-      "expired_tokens": 0
+      "expired_tokens": 0,
+      "created_at": "2025-08-12T10:30:00Z",
+      "updated_at": "2025-08-12T10:30:00Z"
     },
     "is_new_user": true,
     "account_created": true
   },
-  "message": "User created successfully"
+  "timestamp": "2025-08-12T10:30:00.000Z"
 }
 ```
 
-**Security Features:**
-- ✅ OAuth tokens encrypted before database storage
-- ✅ Primary account automatically marked
-- ✅ Audit log created for user registration
-- ✅ Token expiry calculated and tracked
-- ✅ Rate limited: 10 requests/minute
+**Business Logic Included:**
+- ✅ **Complete GoogleAuthService Integration**: All auth endpoint functionality consolidated here
+- ✅ **Smart Duplicate Handling**: Checks for existing users and accounts
+- ✅ **Account Limits**: Validates 5-account maximum per user
+- ✅ **Professional Error Handling**: Proper HTTP status codes and APIResponse format
+- ✅ **UUID Support**: Full UUID primary keys (no more int/UUID conflicts)
 
 ---
 
-#### GET /api/v1/users/{user_id}
-**Purpose:** Retrieve user with all linked accounts and token statuses
+#### GET /api/v1/users/me
+**Purpose:** Get current authenticated user's complete profile (replaces multiple auth endpoints)
 
-**Authorization:** User can only access own data
+**Authorization:** JWT Bearer token required
 
 **Query Parameters:**
 - `include_inactive` (bool): Include inactive accounts (default: false)
 
-**Response:**
+**Headers:**
+```
+Authorization: Bearer <your-jwt-token>
+```
+
+**Response (200 OK):**
 ```json
 {
-  "success": true,
+  "status": "success",
+  "message": "Current user data retrieved successfully",
   "data": {
-    "id": 1,
+    "id": "user-uuid",
     "email": "user@example.com",
+    "name": "John Doe",
+    "picture": "https://lh3.googleusercontent.com/a/photo.jpg",
+    "is_active": true,
     "subscription_plan": "premium",
     "subscription_status": "active",
     "primary_account": {
-      "id": 1,
+      "id": "account-uuid",
+      "google_id": "1234567890",
+      "email": "user@example.com",
+      "name": "John Doe",
+      "is_primary": true,
       "token_status": "active",
       "needs_reauth": false,
       "is_token_expired": false,
-      "last_token_refresh": "2024-01-15T15:45:00Z",
-      "token_refresh_count": 3
+      "last_token_refresh": "2025-08-12T15:45:00Z",
+      "token_refresh_count": 3,
+      "connected_at": "2025-08-12T10:00:00Z"
     },
     "secondary_accounts": [
       {
-        "id": 2,
+        "id": "secondary-uuid",
+        "google_id": "0987654321",
         "email": "work@company.com",
+        "name": "John Doe (Work)",
+        "is_primary": false,
         "token_status": "needs_reauth",
         "needs_reauth": true,
         "is_token_expired": true,
-        "connected_at": "2024-01-14T09:15:00Z"
+        "connected_at": "2025-08-12T09:15:00Z"
       }
     ],
     "total_accounts": 2,
     "active_accounts": 1,
-    "expired_tokens": 1
-  }
+    "expired_tokens": 1,
+    "created_at": "2025-08-12T10:00:00Z",
+    "last_login_at": "2025-08-12T19:30:00Z"
+  },
+  "timestamp": "2025-08-12T19:30:00.000Z"
 }
 ```
+
+---
+
+#### GET /api/v1/users/{user_id}
+**Purpose:** Retrieve specific user data (same response as /users/me)
+
+**Authorization:** User can only access own data (403 Forbidden otherwise)
+
+**Security:** Users can only access their own data for privacy protection
 
 **Token Status Values:**
 - `active`: Token valid and working
@@ -161,9 +198,16 @@ Multi-Layer Protection:
 ### 2. Multi-Account Management
 
 #### POST /api/v1/users/{user_id}/linked-accounts
-**Purpose:** Link secondary Google account (max 5 total)
+**Purpose:** Link secondary Google account (max 5 total) - Professional account management
 
 **Authorization:** User can only manage own accounts
+
+**Features:**
+- ✅ **Smart Duplicate Prevention**: Prevents linking same Google account twice
+- ✅ **Cross-User Protection**: Prevents linking accounts already used by other users
+- ✅ **Account Limits**: Maximum 5 Google accounts per user
+- ✅ **Professional Token Encryption**: AES encryption before storage
+- ✅ **Comprehensive Validation**: Profile and token validation
 
 **Request:**
 ```json
@@ -171,38 +215,55 @@ Multi-Layer Protection:
   "profile": {
     "id": "0987654321",
     "email": "work@company.com",
-    "given_name": "John",
-    "family_name": "Doe",
     "name": "John Doe (Work)",
     "picture": "https://lh3.googleusercontent.com/b/work.jpg"
   },
   "tokens": {
     "access_token": "ya29.work_access_token",
     "refresh_token": "1//work_refresh_token",
-    "expires_at": 1700003600
+    "id_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJS...",
+    "expires_at": 1700003600,
+    "token_type": "Bearer"
   }
 }
 ```
 
-**Success Response:** `201 Created`
+**Success Response (201 Created):**
 ```json
 {
-  "success": true,
+  "status": "success",
+  "message": "Account linked successfully",
   "data": {
-    "user": { /* full user object with updated accounts */ },
+    "user": {
+      "id": "user-uuid",
+      "email": "user@example.com",
+      "total_accounts": 2,
+      "active_accounts": 2,
+      "primary_account": {
+        "email": "user@example.com"
+      },
+      "secondary_accounts": [
+        {
+          "id": "new-account-uuid",
+          "email": "work@company.com"
+        }
+      ]
+    },
     "linked_account": {
-      "id": 3,
-      "user_id": 1,
+      "id": "new-account-uuid",
+      "user_id": "user-uuid",
       "google_id": "0987654321",
       "email": "work@company.com",
+      "name": "John Doe (Work)",
       "is_primary": false,
       "is_active": true,
       "token_status": "active",
-      "connected_at": "2024-01-15T16:00:00Z"
+      "needs_reauth": false,
+      "connected_at": "2025-08-12T16:00:00Z"
     },
     "is_new_account": true
   },
-  "message": "Account linked successfully"
+  "timestamp": "2025-08-12T16:00:00.000Z"
 }
 ```
 
@@ -219,19 +280,39 @@ Multi-Layer Protection:
 ---
 
 #### DELETE /api/v1/users/{user_id}/linked-accounts/{account_id}
-**Purpose:** Unlink secondary account (primary account protected)
+**Purpose:** Unlink secondary account (primary account protected) - Uses GoogleAuthService
 
 **Authorization:** User can only manage own accounts
 
-**Response:**
+**Features:**
+- ✅ **Primary Account Protection**: Cannot unlink primary account (prevents user lockout)
+- ✅ **Professional Service Integration**: Uses GoogleAuthService for consistent logic
+- ✅ **Complete Account Details**: Returns unlinked account information
+- ✅ **Updated User State**: Returns user with current account status
+
+**Response (200 OK):**
 ```json
 {
-  "success": true,
+  "status": "success",
+  "message": "Account unlinked successfully",
   "data": {
-    "account_id": 3,
-    "status": "unlinked"
+    "unlinked_account": {
+      "id": "account-uuid",
+      "email": "work@company.com",
+      "was_primary": false
+    },
+    "user": {
+      "id": "user-uuid",
+      "email": "user@example.com",
+      "total_accounts": 1,
+      "active_accounts": 1,
+      "primary_account": {
+        "email": "user@example.com"
+      },
+      "secondary_accounts": []
+    }
   },
-  "message": "Account unlinked successfully"
+  "timestamp": "2025-08-12T16:30:00.000Z"
 }
 ```
 
@@ -246,7 +327,13 @@ Multi-Layer Protection:
 ### 3. Token Management
 
 #### PATCH /api/v1/users/{user_id}/linked-accounts/{account_id}/tokens
-**Purpose:** Update OAuth tokens after refresh (frontend → backend)
+**Purpose:** Update OAuth tokens after refresh (frontend → backend or Celery → database)
+
+**Features:**
+- ✅ **Professional Token Encryption**: AES-256 encryption before database storage
+- ✅ **Automatic Status Updates**: Updates token expiry status and metadata
+- ✅ **User Authorization**: Only account owners can update their tokens
+- ✅ **Comprehensive Validation**: Validates token format and expiry times
 
 **Rate Limit:** 5 requests/minute (security-sensitive)
 
@@ -255,21 +342,24 @@ Multi-Layer Protection:
 {
   "access_token": "ya29.new_access_token",
   "refresh_token": "1//new_refresh_token",
-  "expires_at": 1700003600,
+  "expires_at": 1734567890,
   "token_type": "Bearer"
 }
 ```
 
-**Response:**
+**Response (200 OK):**
 ```json
 {
-  "success": true,
+  "status": "success",
+  "message": "Tokens updated successfully",
   "data": {
-    "account_id": 2,
+    "account_id": "account-uuid",
     "token_status": "active",
-    "expires_at": "2024-01-15T17:00:00Z",
-    "last_token_refresh": "2024-01-15T16:00:00Z"
-  }
+    "expires_at": "2025-08-12T17:00:00.000Z",
+    "last_token_refresh": "2025-08-12T16:00:00.000Z",
+    "message": "Tokens updated successfully"
+  },
+  "timestamp": "2025-08-12T16:00:00.000Z"
 }
 ```
 
@@ -282,97 +372,134 @@ Multi-Layer Protection:
 ---
 
 #### PATCH /api/v1/users/{user_id}/linked-accounts/{account_id}/reauth
-**Purpose:** Mark account as re-authenticated after OAuth re-consent
+**Purpose:** Mark account as re-authenticated after OAuth re-consent flow
 
-**Response:**
+**Use Case:** When user data shows `needs_reauth: true`, frontend redirects user through OAuth flow, then calls this endpoint to clear the reauth flag.
+
+**Features:**
+- ✅ **Professional Reauth Handling**: Clears needs_reauth flag and updates timestamps
+- ✅ **User Authorization**: Only account owners can mark reauth complete
+- ✅ **Status Management**: Professional token status management
+
+**Response (200 OK):**
 ```json
 {
-  "success": true,
+  "status": "success",
+  "message": "Account marked as re-authenticated",
   "data": {
-    "account_id": 2,
+    "account_id": "account-uuid",
     "status": "reauth_complete"
   },
-  "message": "Account marked as re-authenticated"
+  "timestamp": "2025-08-12T16:15:00.000Z"
 }
 ```
 
-## 🤖 Background Automation
+## 🤖 Celery Background Automation - CRITICAL COMPONENT
 
-### Automatic Token Refresh
+### Automatic Token Refresh (Production Ready)
 ```
-Schedule: Every 5 minutes
-Target: Tokens expiring within 1 hour
+Schedule: Every 5 minutes (Celery Beat)
+Target: Tokens expiring within 10 minutes
 Capacity: 50-100 accounts/minute
-Error Handling: 3 retries with exponential backoff
+Error Handling: Exponential backoff with intelligent retry logic
+Concurrency: Row-level database locking prevents race conditions
 ```
 
-**Process Flow:**
-1. **Scan** for expiring tokens (next 60 minutes)
-2. **Decrypt** refresh tokens from database
-3. **Call** Google OAuth token endpoint
-4. **Encrypt** and store new tokens
-5. **Update** token metadata and status
-6. **Handle** revoked tokens → mark for reauth
+**Professional Process Flow:**
+1. **Celery Beat Scheduler** triggers `refresh_all_expired_tokens` every 5 minutes
+2. **Database Scan** for tokens expiring within 10 minutes using `SELECT FOR UPDATE`
+3. **Decrypt** refresh tokens using AES encryption service
+4. **Google API Call** to refresh tokens with proper error handling
+5. **Encrypt & Store** new tokens with updated expiry timestamps
+6. **Status Updates** token metadata, refresh counts, and status flags
+7. **Error Handling** revoked tokens → mark `needs_reauth: true`
 
-### Revocation Detection
+**Celery Task Names:**
+- `refresh_all_expired_tokens`: Bulk refresh task (every 5 minutes)
+- `refresh_oauth_token`: Individual account refresh
+- `cleanup_failed_refresh_attempts`: Cleanup task (hourly)
+
+### Celery Monitoring & Health Checks
 ```
-Schedule: Every 15 minutes
-Method: Google tokeninfo endpoint validation
-Scope: Active accounts unused for 6+ hours
-Action: Automatic status update + user notification
+Worker Health: ./venv/bin/celery -A src.infrastructure.celery_app inspect active
+Task Queue: ./venv/bin/celery -A src.infrastructure.celery_app inspect scheduled  
+Worker Ping: ./venv/bin/celery -A src.infrastructure.celery_app inspect ping
+Live Logs: tail -f logs/celery_worker.log logs/celery_beat.log
 ```
 
-### Token Cleanup
+**Log Files (Essential for Production):**
+- `logs/celery_worker.log`: Background task execution and token refresh operations
+- `logs/celery_beat.log`: Periodic task scheduler (shows tasks dispatched every 5 minutes)
+- `logs/celery_worker.pid` & `logs/celery_beat.pid`: Process management files
+
+### Token Cleanup & Maintenance
 ```
-Schedule: Hourly
-Target: Tokens expired 30+ days
-Action: Clear encrypted data, preserve audit record
+Schedule: Hourly (Celery task: cleanup_failed_refresh_attempts)
+Target: Failed refresh attempts and cleanup operations
+Action: Database maintenance and log cleanup
+Monitoring: Real-time status tracking in Celery logs
 ```
 
 ## 🛡️ Security & Compliance
 
-### Error Responses
-**Standard Format:**
+### Error Responses - Professional Format
+**Standard APIResponse Format:**
 ```json
 {
-  "success": false,
-  "error": "ERROR_CODE",
-  "message": "Human readable description",
-  "details": {
-    "field": "specific error context"
+  "status": "error",
+  "message": "Human readable error message",
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Profile must include 'id' and 'email' fields",
+    "details": {
+      "field": "profile.email",
+      "provided": null
+    }
+  },
+  "timestamp": "2025-08-12T19:30:00.000Z"
+}
+```
+
+**Common Error Codes (Professional HTTP Status Mapping):**
+- `VALIDATION_ERROR` (400): Invalid request data, missing required fields
+- `UNAUTHORIZED` (401): Missing or invalid JWT authentication token
+- `FORBIDDEN` (403): Insufficient permissions, user can only access own data
+- `RESOURCE_NOT_FOUND` (404): User, account, or endpoint not found
+- `RESOURCE_CONFLICT` (409): Account already linked, account limits exceeded
+- `INTERNAL_SERVER_ERROR` (500): Server errors, database failures, encryption errors
+- `RATE_LIMIT_EXCEEDED` (429): Too many requests (rate limiting active)
+
+**Example Validation Error (400):**
+```json
+{
+  "status": "error",
+  "message": "Validation failed",
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Google user ID is required",
+    "details": {
+      "field": "profile.id",
+      "provided": null,
+      "expected": "string"
+    }
   }
 }
 ```
 
-**Common Error Codes:**
-- `VALIDATION_ERROR`: Invalid request data
-- `UNAUTHORIZED`: Authentication required  
-- `FORBIDDEN`: Access denied
-- `RESOURCE_NOT_FOUND`: Entity not found
-- `RESOURCE_CONFLICT`: Duplicate/limit violation
-- `RATE_LIMIT_EXCEEDED`: Too many requests
-- `TOKEN_ENCRYPTION_FAILED`: Security error
-
-### Rate Limiting Response
+**Example Conflict Error (409):**
 ```json
 {
-  "success": false,
-  "error": "RATE_LIMIT_EXCEEDED",
-  "message": "Rate limit exceeded. Please try again later.",
-  "details": {
-    "limit_type": "per_minute",
-    "retry_after": 45,
-    "requests_remaining": 0
+  "status": "error",
+  "message": "Account already linked",
+  "error": {
+    "code": "RESOURCE_CONFLICT",
+    "message": "This Google account is already linked to your account",
+    "details": {
+      "google_id": "1234567890",
+      "existing_account_id": "account-uuid"
+    }
   }
 }
-```
-
-**Headers:**
-```
-X-RateLimit-Limit: 30
-X-RateLimit-Remaining: 0
-X-RateLimit-Reset: 1700000000
-Retry-After: 45
 ```
 
 ## 📊 Monitoring & Alerting
@@ -455,4 +582,82 @@ PAGERDUTY_INTEGRATION_KEY=your-pagerduty-key
 - **Bulk Operations**: 50-100 accounts/minute
 - **Database Queries**: <50ms (with indexes)
 
-This enterprise API supports **100,000+ users**, **500,000+ linked accounts**, and **1M+ audit events/day** with horizontal scaling capabilities! 🚀
+---
+
+## 🧪 **cURL Testing Examples**
+
+### Create New User
+```bash
+curl -X POST http://localhost:8000/api/v1/users/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "profile": {
+      "id": "1234567890",
+      "email": "user@example.com",
+      "name": "John Doe",
+      "image": "https://lh3.googleusercontent.com/a/photo.jpg"
+    },
+    "tokens": {
+      "access_token": "ya29.access_token_here",
+      "refresh_token": "1//refresh_token_here",
+      "id_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJS...",
+      "expires_at": 1734567890,
+      "token_type": "Bearer"
+    },
+    "is_primary": true
+  }'
+```
+
+### Get Current User
+```bash
+curl http://localhost:8000/api/v1/users/me \
+  -H "Authorization: Bearer your-jwt-token" \
+  -H "Content-Type: application/json"
+```
+
+### Link Secondary Account
+```bash
+curl -X POST http://localhost:8000/api/v1/users/{user_id}/linked-accounts \
+  -H "Authorization: Bearer your-jwt-token" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "profile": {
+      "id": "0987654321",
+      "email": "work@company.com",
+      "name": "John Doe (Work)"
+    },
+    "tokens": {
+      "access_token": "ya29.work_token",
+      "refresh_token": "1//work_refresh",
+      "expires_at": 1734567890
+    }
+  }'
+```
+
+### Update Account Tokens
+```bash
+curl -X PATCH http://localhost:8000/api/v1/users/{user_id}/linked-accounts/{account_id}/tokens \
+  -H "Authorization: Bearer your-jwt-token" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "access_token": "ya29.new_access_token",
+    "refresh_token": "1//new_refresh_token",
+    "expires_at": 1734571490,
+    "token_type": "Bearer"
+  }'
+```
+
+---
+
+## 🏆 **Enterprise Production Capabilities**
+
+This enterprise-grade API supports:
+
+🎯 **Scale**: **100,000+ users**, **500,000+ linked accounts**  
+⚡ **Performance**: **<200ms response times**, **50-100 tokens/minute refresh**  
+🔒 **Security**: **AES-256 encryption**, **JWT authentication**, **rate limiting**  
+🤖 **Automation**: **Celery background tasks**, **automatic token refresh**  
+📊 **Monitoring**: **Comprehensive logging**, **real-time health checks**  
+🏗️ **Architecture**: **Clean Architecture**, **professional error handling**  
+
+**All auth endpoints removed** - Complete functionality consolidated under `/api/v1/users/` for clean, professional API design! 🚀

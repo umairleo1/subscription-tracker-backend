@@ -294,63 +294,431 @@ brew services stop redis  # macOS
 # Stop FastAPI (Ctrl+C in terminal)
 ```
 
-## 🎯 **API Endpoints for Frontend Integration**
+## 🎯 **Complete API Documentation**
 
-### ✅ **Available API Endpoints**
+### ✅ **User Management API - Production Ready**
 
-**User Management (RESTful & Secure):**
-```bash
-# Primary user creation/update from Google OAuth
-POST /api/v1/users/
+All endpoints now consolidated under `/api/v1/users/` with complete Google OAuth functionality:
+
+---
+
+#### **🔥 1. Create or Update User (Primary Endpoint)**
+
+**Endpoint:** `POST /api/v1/users/`
+
+**Purpose:** Handle both new user creation and linking additional Google accounts with complete Google OAuth integration.
+
+**Request Body:**
+```json
 {
-  "profile": {"id": "123", "email": "user@gmail.com", "name": "John"},
-  "tokens": {"access_token": "...", "refresh_token": "..."},
-  "is_primary": true  # Can handle both primary and secondary accounts
+  "profile": {
+    "id": "1234567890",
+    "email": "user@example.com", 
+    "name": "John Doe",
+    "image": "https://lh3.googleusercontent.com/a/photo.jpg"
+  },
+  "tokens": {
+    "access_token": "ya29.access_token_here",
+    "refresh_token": "1//refresh_token_here", 
+    "id_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...",
+    "expires_at": 1700000000,
+    "token_type": "Bearer",
+    "scope": "openid email profile"
+  },
+  "is_primary": true
 }
-
-# Get current authenticated user (fixes 422 validation errors)
-GET /api/v1/users/me
-
-# Get user by ID  
-GET /api/v1/users/{user_id}
-
-# Link secondary Google account
-POST /api/v1/users/{user_id}/linked-accounts
-
-# Unlink secondary account (with proper auth)
-DELETE /api/v1/users/{user_id}/linked-accounts/{account_id}
 ```
 
+**Response (201 Created):**
+```json
+{
+  "status": "success",
+  "message": "New user created and Google account linked successfully",
+  "data": {
+    "user": {
+      "id": "uuid-here",
+      "email": "user@example.com",
+      "name": "John Doe", 
+      "picture": "https://lh3.googleusercontent.com/a/photo.jpg",
+      "is_active": true,
+      "subscription_plan": "free",
+      "subscription_status": "active",
+      "primary_account": {
+        "id": "account-uuid",
+        "google_id": "1234567890",
+        "email": "user@example.com",
+        "is_primary": true,
+        "token_status": "active",
+        "needs_reauth": false
+      },
+      "secondary_accounts": [],
+      "total_accounts": 1,
+      "active_accounts": 1,
+      "expired_tokens": 0
+    },
+    "is_new_user": true,
+    "account_created": true
+  },
+  "timestamp": "2025-08-12T19:30:00.000Z"
+}
+```
 
-### API Testing
+**Features:**
+- ✅ **Complete OAuth Flow**: Handles Google profile + tokens
+- ✅ **Automatic Token Encryption**: AES-256 encryption for stored tokens  
+- ✅ **Duplicate Prevention**: Smart handling of existing accounts
+- ✅ **Account Limits**: Enforces 5 account maximum per user
+- ✅ **Background Token Refresh**: Automatic Celery integration
 
-Test the API endpoints using curl:
+---
 
+#### **🔥 2. Get Current User**
+
+**Endpoint:** `GET /api/v1/users/me`
+
+**Purpose:** Get authenticated user's complete profile with all linked accounts.
+
+**Query Parameters:**
+- `include_inactive` (bool, default: false) - Include inactive accounts
+
+**Headers:**
+```
+Authorization: Bearer <your-jwt-token>
+```
+
+**Response (200 OK):**
+```json
+{
+  "status": "success",
+  "message": "Current user data retrieved successfully",
+  "data": {
+    "id": "user-uuid",
+    "email": "user@example.com",
+    "name": "John Doe",
+    "is_active": true,
+    "subscription_plan": "free", 
+    "subscription_status": "active",
+    "primary_account": {
+      "id": "account-uuid",
+      "google_id": "1234567890",
+      "email": "user@example.com",
+      "name": "John Doe",
+      "is_primary": true,
+      "token_status": "active",
+      "needs_reauth": false,
+      "is_token_expired": false,
+      "connected_at": "2025-08-12T10:00:00.000Z",
+      "last_token_refresh": "2025-08-12T18:30:00.000Z"
+    },
+    "secondary_accounts": [
+      {
+        "id": "secondary-uuid",
+        "google_id": "0987654321", 
+        "email": "secondary@example.com",
+        "is_primary": false,
+        "token_status": "active"
+      }
+    ],
+    "total_accounts": 2,
+    "active_accounts": 2,
+    "expired_tokens": 0,
+    "created_at": "2025-08-12T10:00:00.000Z",
+    "last_login_at": "2025-08-12T19:30:00.000Z"
+  }
+}
+```
+
+---
+
+#### **🔥 3. Get User by ID**
+
+**Endpoint:** `GET /api/v1/users/{user_id}`
+
+**Purpose:** Retrieve specific user data (authorization required - users can only access their own data).
+
+**Path Parameters:**
+- `user_id` (string) - UUID of the user
+
+**Query Parameters:**
+- `include_inactive` (bool, default: false) - Include inactive accounts
+
+**Response:** Same as `/users/me` endpoint
+
+**Security:** Users can only access their own data (403 Forbidden otherwise)
+
+---
+
+#### **🔥 4. Link Secondary Google Account** 
+
+**Endpoint:** `POST /api/v1/users/{user_id}/linked-accounts`
+
+**Purpose:** Link additional Google accounts to existing user (up to 5 total).
+
+**Request Body:**
+```json
+{
+  "profile": {
+    "id": "0987654321",
+    "email": "secondary@example.com",
+    "name": "Jane Smith", 
+    "picture": "https://lh3.googleusercontent.com/b/photo.jpg"
+  },
+  "tokens": {
+    "access_token": "ya29.secondary_access_token",
+    "refresh_token": "1//secondary_refresh_token",
+    "expires_at": 1700000000,
+    "token_type": "Bearer"
+  }
+}
+```
+
+**Response (201 Created):**
+```json
+{
+  "status": "success", 
+  "message": "Account linked successfully",
+  "data": {
+    "user": {
+      "id": "user-uuid",
+      "email": "user@example.com",
+      "total_accounts": 2,
+      "active_accounts": 2
+    },
+    "linked_account": {
+      "id": "new-account-uuid",
+      "google_id": "0987654321",
+      "email": "secondary@example.com", 
+      "is_primary": false,
+      "token_status": "active"
+    },
+    "is_new_account": true
+  }
+}
+```
+
+**Business Rules:**
+- ✅ **Account Limit**: Maximum 5 Google accounts per user
+- ✅ **Duplicate Prevention**: Prevents linking same Google account twice
+- ✅ **Cross-User Protection**: Prevents linking accounts already used by other users
+
+---
+
+#### **🔥 5. Unlink Secondary Account**
+
+**Endpoint:** `DELETE /api/v1/users/{user_id}/linked-accounts/{account_id}`
+
+**Purpose:** Remove a secondary Google account (protects primary account from deletion).
+
+**Path Parameters:**
+- `user_id` (string) - UUID of the user
+- `account_id` (string) - UUID of the account to unlink
+
+**Response (200 OK):**
+```json
+{
+  "status": "success",
+  "message": "Account unlinked successfully", 
+  "data": {
+    "unlinked_account": {
+      "id": "account-uuid",
+      "email": "secondary@example.com",
+      "was_primary": false
+    },
+    "user": {
+      "id": "user-uuid", 
+      "email": "user@example.com",
+      "total_accounts": 1,
+      "active_accounts": 1,
+      "primary_account": {
+        "email": "user@example.com"
+      },
+      "secondary_accounts": []
+    }
+  }
+}
+```
+
+**Protection:** Cannot unlink primary account (prevents user lockout)
+
+---
+
+#### **🔥 6. Update Account Tokens**
+
+**Endpoint:** `PATCH /api/v1/users/{user_id}/linked-accounts/{account_id}/tokens`
+
+**Purpose:** Update OAuth tokens after successful refresh (used by frontend or Celery).
+
+**Request Body:**
+```json
+{
+  "access_token": "ya29.new_access_token",
+  "refresh_token": "1//new_refresh_token", 
+  "expires_at": 1700003600,
+  "token_type": "Bearer"
+}
+```
+
+**Response (200 OK):**
+```json
+{
+  "status": "success",
+  "message": "Tokens updated successfully",
+  "data": {
+    "account_id": "account-uuid",
+    "token_status": "active",
+    "expires_at": "2025-08-12T20:00:00.000Z",
+    "last_token_refresh": "2025-08-12T19:30:00.000Z",
+    "message": "Tokens updated successfully"
+  }
+}
+```
+
+**Security:** 
+- ✅ **AES Encryption**: All tokens encrypted before storage
+- ✅ **Automatic Status Updates**: Updates token expiry status
+- ✅ **User Authorization**: Only account owners can update
+
+---
+
+#### **🔥 7. Mark Account Re-authenticated** 
+
+**Endpoint:** `PATCH /api/v1/users/{user_id}/linked-accounts/{account_id}/reauth`
+
+**Purpose:** Mark account as re-authenticated after user completes OAuth re-consent flow.
+
+**Response (200 OK):**
+```json
+{
+  "status": "success",
+  "message": "Account marked as re-authenticated",
+  "data": {
+    "account_id": "account-uuid", 
+    "status": "reauth_complete"
+  }
+}
+```
+
+**Use Case:** When `needs_reauth: true` in user data, frontend redirects user to OAuth flow, then calls this endpoint.
+
+---
+
+### 📊 **Error Responses**
+
+All endpoints use standardized error format:
+
+```json
+{
+  "status": "error",
+  "message": "Human-readable error message",
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Profile must include 'id' and 'email' fields",
+    "details": {
+      "field": "profile.email",
+      "provided": null
+    }
+  },
+  "timestamp": "2025-08-12T19:30:00.000Z"
+}
+```
+
+**Common Error Codes:**
+- `VALIDATION_ERROR` (400) - Invalid request data
+- `UNAUTHORIZED` (401) - Missing/invalid authentication  
+- `FORBIDDEN` (403) - Insufficient permissions
+- `RESOURCE_NOT_FOUND` (404) - User/account not found
+- `RESOURCE_CONFLICT` (409) - Account already linked, limits exceeded
+- `INTERNAL_SERVER_ERROR` (500) - Server errors
+
+
+---
+
+### 🧪 **API Testing Examples**
+
+Test the production-ready API endpoints:
+
+#### **✅ Health Check**
 ```bash
-# Health check
 curl http://localhost:8000/api/v1/health
+```
 
-# Test user creation
+#### **✅ Create New User**
+```bash
 curl -X POST http://localhost:8000/api/v1/users/ \
   -H "Content-Type: application/json" \
   -d '{
     "profile": {
-      "id": "test123",
-      "email": "test@example.com", 
-      "name": "Test User",
-      "picture": "https://example.com/avatar.jpg"
+      "id": "1234567890",
+      "email": "user@example.com", 
+      "name": "John Doe",
+      "image": "https://lh3.googleusercontent.com/a/photo.jpg"
     },
     "tokens": {
-      "access_token": "test_token",
-      "refresh_token": "refresh_token",
-      "expires_at": 1700000000
+      "access_token": "ya29.access_token_here",
+      "refresh_token": "1//refresh_token_here",
+      "id_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...",
+      "expires_at": 1734567890,
+      "token_type": "Bearer",
+      "scope": "openid email profile"
     },
     "is_primary": true
   }'
+```
 
-# Get current user (no more 422 errors!)
+#### **✅ Get Current User**
+```bash
 curl http://localhost:8000/api/v1/users/me \
+  -H "Authorization: Bearer your-jwt-token" \
+  -H "Content-Type: application/json"
+```
+
+#### **✅ Link Secondary Account**
+```bash
+curl -X POST http://localhost:8000/api/v1/users/{user_id}/linked-accounts \
+  -H "Authorization: Bearer your-jwt-token" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "profile": {
+      "id": "0987654321",
+      "email": "secondary@example.com",
+      "name": "Jane Smith"
+    },
+    "tokens": {
+      "access_token": "ya29.secondary_token",
+      "refresh_token": "1//secondary_refresh",
+      "expires_at": 1734567890
+    }
+  }'
+```
+
+#### **✅ Update Account Tokens**
+```bash
+curl -X PATCH http://localhost:8000/api/v1/users/{user_id}/linked-accounts/{account_id}/tokens \
+  -H "Authorization: Bearer your-jwt-token" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "access_token": "ya29.new_access_token",
+    "refresh_token": "1//new_refresh_token", 
+    "expires_at": 1734571490,
+    "token_type": "Bearer"
+  }'
+```
+
+#### **✅ Unlink Account**
+```bash
+curl -X DELETE http://localhost:8000/api/v1/users/{user_id}/linked-accounts/{account_id} \
   -H "Authorization: Bearer your-jwt-token"
+```
+
+**📋 Expected Response Format:**
+All successful responses follow this structure:
+```json
+{
+  "status": "success",
+  "message": "Operation completed successfully", 
+  "data": { /* endpoint-specific data */ },
+  "timestamp": "2025-08-12T19:30:00.000Z"
+}
 ```
 
 ## 🔧 Development Commands

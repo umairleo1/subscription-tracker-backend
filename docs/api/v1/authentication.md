@@ -1,12 +1,28 @@
-# Authentication API
+# Authentication API - DEPRECATED
 
-The Authentication API handles Google OAuth user management, including saving OAuth data from NextAuth.js frontend and managing multiple Google accounts per user.
+## ⚠️ **IMPORTANT: All auth endpoints have been REMOVED**
 
-## Base URL
-```
-POST /api/v1/auth
-DELETE /api/v1/auth
-```
+**All authentication functionality has been consolidated into the User Management API under `/api/v1/users/` endpoints.**
+
+**This documentation is kept for reference only. Please use the new endpoints:**
+
+- **OLD**: `POST /api/v1/auth/save-user` 
+- **NEW**: `POST /api/v1/users/` ✅
+
+- **OLD**: `DELETE /api/v1/auth/accounts/{account_id}` 
+- **NEW**: `DELETE /api/v1/users/{user_id}/linked-accounts/{account_id}` ✅
+
+## 🚀 **Use the New User Management API**
+
+Please refer to the updated documentation:
+
+- **[Complete API Guide](comprehensive-api-guide.md)** - Enterprise-grade documentation
+- **[User Management API](users.md)** - Detailed user endpoints documentation
+- **[README.md](../../../README.md)** - Quick start and examples
+
+---
+
+## Legacy Documentation (For Reference Only)
 
 ## Endpoints
 
