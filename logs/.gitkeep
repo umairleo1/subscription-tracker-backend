@@ -1,0 +1,3 @@
+# This file ensures the logs directory is tracked in git
+# All log files in this directory are ignored via .gitignore
+# This is needed for the start_all_services.sh script to work correctly

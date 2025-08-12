@@ -1,0 +1,3 @@
+"""
+Background task system initialization
+"""
