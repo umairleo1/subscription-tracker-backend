@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 from src.domain.entities.user import User
 from src.domain.entities.linked_account import LinkedAccount
-from src.presentation.responses.auth import SaveUserRequest, GoogleOAuthProfile, GoogleOAuthTokens
+from src.presentation.responses.user import SaveUserRequest, GoogleOAuthProfile, GoogleOAuthTokens
 from src.core.exceptions import (
     BaseAPIException,
     ResourceConflictException,

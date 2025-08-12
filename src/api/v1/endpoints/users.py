@@ -4,6 +4,7 @@ Handles primary user creation, linked account management, and token lifecycle
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
+from sqlalchemy import and_
 from typing import Optional, List
 from datetime import datetime, timezone
 import logging
@@ -12,9 +13,16 @@ from src.database.database import get_db
 from src.domain.entities import User, LinkedAccount, TokenStatus
 from src.presentation.responses.user import (
     CreateUserRequest, CreateUserResponse, LinkAccountRequest, LinkAccountResponse,
-    UpdateTokenRequest, TokenUpdateResponse, UserResponse
+    UpdateTokenRequest, TokenUpdateResponse, UserResponse, SaveUserRequest, 
+    GoogleOAuthProfile, GoogleOAuthTokens, LinkedAccountResponse
 )
-from src.presentation.responses.response import APIResponse
+from src.domain.services.google_auth_service import GoogleAuthService
+from src.core.exceptions import (
+    ValidationException,
+    ResourceNotFoundException,
+    ResourceConflictException
+)
+from src.presentation.responses.response import APIResponse, ResponseStatus
 from src.core.security.encryption import encrypt_oauth_tokens
 from src.utils.auth import get_current_active_user
 
@@ -27,92 +35,53 @@ async def create_or_upsert_user(
     db: Session = Depends(get_db)
 ) -> APIResponse[CreateUserResponse]:
     """
-    Create or upsert a primary user on first sign-in via NextAuth.js Google OAuth
+    Create or upsert a user from Google OAuth authentication
     
-    This endpoint handles the initial user registration when they sign in with Google for the first time.
-    It creates both a User record and their primary LinkedAccount with encrypted OAuth tokens.
+    This endpoint handles both new user creation and linking additional Google accounts.
+    It has complete functionality from the auth service including account limits and validation.
+    
+    **Flow:**
+    1. If Google account doesn't exist: Create new user or link to existing user
+    2. If Google account exists: Update tokens and profile information
+    3. Enforce business rules (primary account uniqueness, account limits)
+    
+    **Request Body:**
+    - **profile**: Google OAuth profile (id, email, name, picture)
+    - **tokens**: Google OAuth tokens (access_token, refresh_token, etc.)
+    - **is_primary**: Whether this should be the primary account (for new users)
     """
     try:
-        # Extract profile and token data
-        profile = request.profile
-        tokens = request.tokens
+        auth_service = GoogleAuthService(db)
         
-        # Validate required profile fields
-        google_id = profile.get("id")
-        email = profile.get("email")
-        if not google_id or not email:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Profile must include 'id' and 'email' fields"
-            )
+        # Create a compatible request object for the auth service
+        # Convert dict to structured models
+        profile_data = GoogleOAuthProfile(**request.profile)
+        tokens_data = GoogleOAuthTokens(**request.tokens)
         
-        # Check if user already exists (by email for primary account)
-        existing_user = db.query(User).filter(User.email == email).first()
-        is_new_user = existing_user is None
+        save_request = SaveUserRequest(
+            profile=profile_data,
+            tokens=tokens_data,
+            is_primary=request.is_primary
+        )
         
-        if existing_user:
-            # Update existing user's last login
-            existing_user.last_login_at = datetime.now(timezone.utc)
-            user = existing_user
-            
-            # Check if primary account exists and update tokens
-            primary_account = user.primary_account
-            if primary_account:
-                # Encrypt and update tokens
-                encrypted_tokens = encrypt_oauth_tokens(
-                    access_token=tokens.get("access_token"),
-                    refresh_token=tokens.get("refresh_token"),
-                    id_token=tokens.get("id_token")
-                )
-                
-                primary_account.access_token_encrypted = encrypted_tokens["access_token_encrypted"]
-                primary_account.refresh_token_encrypted = encrypted_tokens["refresh_token_encrypted"]
-                primary_account.id_token_encrypted = encrypted_tokens["id_token_encrypted"]
-                primary_account.expires_at = datetime.fromtimestamp(tokens.get("expires_at", 0), tz=timezone.utc)
-                primary_account.token_type = tokens.get("token_type", "Bearer")
-                primary_account.scope = tokens.get("scope")
-                primary_account.token_status = TokenStatus.ACTIVE.value
-                primary_account.needs_reauth = False
-                primary_account.last_used_at = datetime.now(timezone.utc)
-                
-                # Update profile info in case it changed
-                primary_account.name = profile.get("name")
-                primary_account.picture = profile.get("picture")
-                
-                account_created = False
-            else:
-                # Create primary account if it doesn't exist (shouldn't happen but handle it)
-                account_created = True
-                primary_account = _create_linked_account(
-                    user=user,
-                    profile=profile,
-                    tokens=tokens,
-                    is_primary=True
-                )
-                db.add(primary_account)
-        else:
-            # Create new user
-            user = User(
-                email=email,
-                name=profile.get("name"),
-                picture=profile.get("picture"),
-                last_login_at=datetime.now(timezone.utc)
-            )
-            db.add(user)
-            db.flush()  # Get user.id
-            
-            # Create primary linked account
-            primary_account = _create_linked_account(
-                user=user,
-                profile=profile,
-                tokens=tokens,
-                is_primary=True
-            )
-            db.add(primary_account)
-            account_created = True
+        # Validate request data
+        if not save_request.profile.id:
+            raise ValidationException("Google user ID is required")
         
-        db.commit()
-        db.refresh(user)
+        if not save_request.profile.email:
+            raise ValidationException("Google email is required")
+        
+        if not save_request.tokens.access_token:
+            raise ValidationException("Google access token is required")
+        
+        # Check account limits for existing users (only when adding secondary accounts)
+        if not save_request.is_primary:
+            existing_user = auth_service.get_user_by_email(save_request.profile.email)
+            if existing_user:
+                auth_service.validate_account_limits(existing_user.id, max_accounts=5)
+        
+        # Save or update user and Google account using auth service
+        user, account_created, is_new_user = auth_service.save_user_from_oauth(save_request)
         
         # Prepare response
         user_response = UserResponse(**user.to_dict())
@@ -122,14 +91,28 @@ async def create_or_upsert_user(
             account_created=account_created
         )
         
-        logger.info(f"User {'created' if is_new_user else 'updated'}: {email}")
+        # Determine success message
+        if is_new_user:
+            message = "New user created and Google account linked successfully"
+        elif account_created:
+            message = "Additional Google account linked successfully"
+        else:
+            message = "User profile and tokens updated successfully"
+        
+        logger.info(f"User {'created' if is_new_user else 'updated'}: {user.email}")
         
         return APIResponse(
-            success=True,
+            status=ResponseStatus.SUCCESS,
             data=response_data,
-            message=f"User {'created' if is_new_user else 'updated'} successfully"
+            message=message
         )
         
+    except (ValidationException, ResourceConflictException) as e:
+        logger.error(f"Validation error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
     except Exception as e:
         db.rollback()
         logger.error(f"Failed to create/upsert user: {str(e)}")
@@ -138,9 +121,34 @@ async def create_or_upsert_user(
             detail=f"Failed to create/upsert user: {str(e)}"
         )
 
+@router.get("/me", response_model=APIResponse[UserResponse])
+async def get_current_user(
+    include_inactive: bool = Query(False, description="Include inactive linked accounts"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+) -> APIResponse[UserResponse]:
+    """
+    Get current authenticated user's data with all linked accounts and token statuses
+    
+    This is a convenience endpoint for frontends that need current user information.
+    Equivalent to GET /{user_id} but uses the authenticated user's ID automatically.
+    """
+    # Filter accounts based on include_inactive parameter
+    if not include_inactive:
+        # Only return active accounts
+        current_user.linked_accounts = [acc for acc in current_user.linked_accounts if acc.is_active]
+    
+    user_response = UserResponse(**current_user.to_dict())
+    
+    return APIResponse(
+        status=ResponseStatus.SUCCESS,
+        data=user_response,
+        message="Current user data retrieved successfully"
+    )
+
 @router.get("/{user_id}", response_model=APIResponse[UserResponse])
 async def get_user_with_accounts(
-    user_id: int,
+    user_id: str,
     include_inactive: bool = Query(False, description="Include inactive linked accounts"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
@@ -170,14 +178,14 @@ async def get_user_with_accounts(
     user_response = UserResponse(**user.to_dict())
     
     return APIResponse(
-        success=True,
+        status=ResponseStatus.SUCCESS,
         data=user_response,
         message="User data retrieved successfully"
     )
 
 @router.post("/{user_id}/linked-accounts", response_model=APIResponse[LinkAccountResponse], status_code=status.HTTP_201_CREATED)
 async def link_secondary_account(
-    user_id: int,
+    user_id: str,
     request: LinkAccountRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
@@ -260,7 +268,7 @@ async def link_secondary_account(
         logger.info(f"Linked secondary account {email} to user {current_user.email}")
         
         return APIResponse(
-            success=True,
+            status=ResponseStatus.SUCCESS,
             data=response_data,
             message="Account linked successfully"
         )
@@ -277,13 +285,15 @@ async def link_secondary_account(
 
 @router.delete("/{user_id}/linked-accounts/{account_id}", response_model=APIResponse[dict])
 async def unlink_secondary_account(
-    user_id: int,
-    account_id: int,
+    user_id: str,
+    account_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ) -> APIResponse[dict]:
     """
     Unlink a secondary Google account (prevents unlinking the primary account)
+    
+    Uses the same GoogleAuthService as the auth endpoint for consistency.
     """
     # Authorization check
     if current_user.id != user_id:
@@ -292,43 +302,68 @@ async def unlink_secondary_account(
             detail="You can only manage your own linked accounts"
         )
     
-    # Find the account to unlink
-    account = db.query(LinkedAccount).filter(
-        and_(
-            LinkedAccount.id == account_id,
-            LinkedAccount.user_id == user_id
-        )
-    ).first()
-    
-    if not account:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Linked account not found"
-        )
-    
-    # Prevent unlinking primary account
-    if account.is_primary:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Cannot unlink the primary account. You must have at least one linked account."
-        )
-    
     try:
-        # Soft delete - mark as inactive
-        account.is_active = False
-        account.token_status = TokenStatus.REVOKED.value
-        account.updated_at = datetime.now(timezone.utc)
+        auth_service = GoogleAuthService(db)
         
-        db.commit()
+        # Validate account_id format (convert to string for auth service)
+        account_id_str = str(account_id)
         
-        logger.info(f"Unlinked secondary account {account.email} from user {current_user.email}")
+        # Find the Google account to get details
+        google_account = db.query(LinkedAccount).filter(LinkedAccount.id == account_id).first()
+        
+        if not google_account:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Linked account not found"
+            )
+        
+        # Verify ownership
+        if google_account.user_id != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Linked account not found"
+            )
+        
+        account_email = google_account.email
+        was_primary = google_account.is_primary
+        
+        # Use GoogleAuthService for consistent unlinking logic
+        success = auth_service.unlink_google_account(account_id_str, user_id)
+        
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to unlink Google account"
+            )
+        
+        # Get updated user data
+        user = auth_service.get_user_with_accounts(user_id)
+        
+        response_data = {
+            "unlinked_account": {
+                "id": account_id_str,
+                "email": account_email,
+                "was_primary": was_primary
+            },
+            "user": user.to_dict(include_accounts=True) if user else None
+        }
+        
+        logger.info(f"Unlinked secondary account {account_email} from user {current_user.email}")
         
         return APIResponse(
-            success=True,
-            data={"account_id": account_id, "status": "unlinked"},
+            status=ResponseStatus.SUCCESS,
+            data=response_data,
             message="Account unlinked successfully"
         )
         
+    except HTTPException:
+        raise
+    except (ValidationException, ResourceNotFoundException) as e:
+        logger.error(f"Service error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
     except Exception as e:
         db.rollback()
         logger.error(f"Failed to unlink account: {str(e)}")
@@ -339,8 +374,8 @@ async def unlink_secondary_account(
 
 @router.patch("/{user_id}/linked-accounts/{account_id}/tokens", response_model=APIResponse[TokenUpdateResponse])
 async def update_account_tokens(
-    user_id: int,
-    account_id: int,
+    user_id: str,
+    account_id: str,
     request: UpdateTokenRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
@@ -399,7 +434,7 @@ async def update_account_tokens(
         logger.info(f"Updated tokens for account {account.email}")
         
         return APIResponse(
-            success=True,
+            status=ResponseStatus.SUCCESS,
             data=response_data,
             message="Tokens updated successfully"
         )
@@ -414,8 +449,8 @@ async def update_account_tokens(
 
 @router.patch("/{user_id}/linked-accounts/{account_id}/reauth", response_model=APIResponse[dict])
 async def mark_account_reauth_complete(
-    user_id: int,
-    account_id: int,
+    user_id: str,
+    account_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ) -> APIResponse[dict]:
@@ -450,7 +485,7 @@ async def mark_account_reauth_complete(
         logger.info(f"Marked account {account.email} as re-authenticated")
         
         return APIResponse(
-            success=True,
+            status=ResponseStatus.SUCCESS,
             data={"account_id": account_id, "status": "reauth_complete"},
             message="Account marked as re-authenticated"
         )

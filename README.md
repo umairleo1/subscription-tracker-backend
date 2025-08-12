@@ -294,30 +294,63 @@ brew services stop redis  # macOS
 # Stop FastAPI (Ctrl+C in terminal)
 ```
 
+## 🎯 **API Endpoints for Frontend Integration**
+
+### ✅ **Available API Endpoints**
+
+**User Management (RESTful & Secure):**
+```bash
+# Primary user creation/update from Google OAuth
+POST /api/v1/users/
+{
+  "profile": {"id": "123", "email": "user@gmail.com", "name": "John"},
+  "tokens": {"access_token": "...", "refresh_token": "..."},
+  "is_primary": true  # Can handle both primary and secondary accounts
+}
+
+# Get current authenticated user (fixes 422 validation errors)
+GET /api/v1/users/me
+
+# Get user by ID  
+GET /api/v1/users/{user_id}
+
+# Link secondary Google account
+POST /api/v1/users/{user_id}/linked-accounts
+
+# Unlink secondary account (with proper auth)
+DELETE /api/v1/users/{user_id}/linked-accounts/{account_id}
+```
+
+
 ### API Testing
 
-Test the API endpoints using curl or any API client:
+Test the API endpoints using curl:
 
 ```bash
 # Health check
 curl http://localhost:8000/api/v1/health
 
-# Test authentication endpoint
-curl -X POST http://localhost:8000/api/v1/auth/save-user \
+# Test user creation
+curl -X POST http://localhost:8000/api/v1/users/ \
   -H "Content-Type: application/json" \
   -d '{
     "profile": {
       "id": "test123",
       "email": "test@example.com", 
       "name": "Test User",
-      "image": "https://example.com/avatar.jpg"
+      "picture": "https://example.com/avatar.jpg"
     },
     "tokens": {
       "access_token": "test_token",
       "refresh_token": "refresh_token",
       "expires_at": 1700000000
-    }
+    },
+    "is_primary": true
   }'
+
+# Get current user (no more 422 errors!)
+curl http://localhost:8000/api/v1/users/me \
+  -H "Authorization: Bearer your-jwt-token"
 ```
 
 ## 🔧 Development Commands

@@ -5,10 +5,33 @@ from pydantic import BaseModel, Field, EmailStr
 from typing import List, Optional
 from datetime import datetime
 
+class GoogleOAuthProfile(BaseModel):
+    """Google OAuth profile data from NextAuth.js"""
+    id: str = Field(..., description="Google user ID")
+    email: EmailStr = Field(..., description="Google email address")
+    name: Optional[str] = Field(None, description="Full name from Google profile")
+    image: Optional[str] = Field(None, description="Profile picture URL")
+
+class GoogleOAuthTokens(BaseModel):
+    """Google OAuth tokens from NextAuth.js"""
+    access_token: str = Field(..., description="Google access token")
+    refresh_token: Optional[str] = Field(None, description="Google refresh token")
+    id_token: Optional[str] = Field(None, description="Google ID token")
+    expires_at: Optional[int] = Field(None, description="Token expiration timestamp")
+    token_type: Optional[str] = Field("Bearer", description="Token type")
+    scope: Optional[str] = Field(None, description="Granted OAuth scopes")
+
+class SaveUserRequest(BaseModel):
+    """Request payload for saving/updating user from NextAuth.js (used by GoogleAuthService)"""
+    profile: GoogleOAuthProfile = Field(..., description="Google OAuth profile")
+    tokens: GoogleOAuthTokens = Field(..., description="Google OAuth tokens")
+    is_primary: Optional[bool] = Field(True, description="Whether this is the primary account")
+
 class CreateUserRequest(BaseModel):
-    """Request model for creating or upserting a primary user"""
+    """Request model for creating or upserting a user with Google OAuth"""
     profile: dict = Field(..., description="Google OAuth profile data")
     tokens: dict = Field(..., description="OAuth tokens from Google")
+    is_primary: Optional[bool] = Field(True, description="Whether this should be the primary account (for new users)")
     
     class Config:
         json_schema_extra = {
@@ -68,8 +91,8 @@ class UpdateTokenRequest(BaseModel):
 
 class LinkedAccountResponse(BaseModel):
     """Response model for linked account data"""
-    id: int
-    user_id: int
+    id: str
+    user_id: str
     google_id: str
     email: EmailStr
     name: Optional[str]
@@ -87,7 +110,7 @@ class LinkedAccountResponse(BaseModel):
 
 class UserResponse(BaseModel):
     """Response model for user data with linked accounts"""
-    id: int
+    id: str
     email: EmailStr
     name: Optional[str]
     picture: Optional[str]
@@ -149,7 +172,7 @@ class LinkAccountResponse(BaseModel):
     
 class TokenUpdateResponse(BaseModel):
     """Response model for token updates"""
-    account_id: int
+    account_id: str
     token_status: str
     expires_at: datetime
     last_token_refresh: datetime

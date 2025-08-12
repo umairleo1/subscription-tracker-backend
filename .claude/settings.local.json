@@ -65,7 +65,12 @@
       "Bash(cd:*)",
       "Bash(cd:*)",
       "Bash(cd:*)",
-      "Bash(cd:*)"
+      "Bash(cd:*)",
+      "Bash(cd:*)",
+      "Bash(cd:*)",
+      "Bash(cd:*)",
+      "Bash(cd:*)",
+      "Bash(./venv/bin/celery -A src.infrastructure.celery_app inspect stats)"
     ],
     "deny": []
   }
