@@ -112,3 +112,5 @@ media/
 
 # pytest
 .pytest_cache/
+# Local Claude Code settings
+.claude/
